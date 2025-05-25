@@ -11,6 +11,11 @@
     <style>
         body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif; }
     </style>
+    <!-- Vercel Analytics - Metriche -->
+    <script>
+        window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };
+    </script>
+    <script defer src="https://cdn.vercel-insights.com/v1/script.js"></script>
 </head>
 <body>
     <div id="root"></div>
@@ -46,7 +51,19 @@
                 const now = new Date().toISOString();
                 localStorage.setItem('lastUpdate', now);
                 setLastUpdate(now);
+                
+                // Track analytics per modifiche importanti
+                if (typeof window.va === 'function') {
+                    window.va('track', 'Expense Updated');
+                }
             }, [expenses]);
+
+            // Track page view iniziale
+            useEffect(() => {
+                if (typeof window.va === 'function') {
+                    window.va('pageview');
+                }
+            }, []);
 
             const totalEstimated = expenses.reduce((sum, expense) => sum + expense.estimatedCost, 0);
             const totalActual = expenses.reduce((sum, expense) => sum + expense.actualCost, 0);
@@ -68,11 +85,21 @@
                 ));
                 setEditingId(null);
                 setEditForm({});
+                
+                // Track edit completato
+                if (typeof window.va === 'function') {
+                    window.va('track', 'Expense Edited');
+                }
             };
 
             const deleteExpense = (id) => {
                 if (window.confirm('Sei sicuro di voler eliminare questa spesa?')) {
                     setExpenses(expenses.filter(expense => expense.id !== id));
+                    
+                    // Track eliminazione
+                    if (typeof window.va === 'function') {
+                        window.va('track', 'Expense Deleted');
+                    }
                 }
             };
 
@@ -84,6 +111,11 @@
                         paymentDate: !expense.paid ? new Date().toISOString().split('T')[0] : ''
                     } : expense
                 ));
+                
+                // Track toggle pagamento
+                if (typeof window.va === 'function') {
+                    window.va('track', 'Payment Toggled');
+                }
             };
 
             const addNewExpense = () => {
@@ -98,6 +130,11 @@
                 };
                 setExpenses([...expenses, newExpense]);
                 startEdit(newExpense);
+                
+                // Track nuova spesa
+                if (typeof window.va === 'function') {
+                    window.va('track', 'New Expense Added');
+                }
             };
 
             const exportData = () => {
@@ -118,6 +155,11 @@
                 link.click();
                 document.body.removeChild(link);
                 URL.revokeObjectURL(url);
+                
+                // Track export
+                if (typeof window.va === 'function') {
+                    window.va('track', 'Data Exported');
+                }
             };
 
             const importData = (event) => {
@@ -132,6 +174,11 @@
                             if (window.confirm('Questo sostituirà tutti i dati attuali. Continuare?')) {
                                 setExpenses(importedData.expenses);
                                 alert('Dati importati con successo! 🎉');
+                                
+                                // Track import
+                                if (typeof window.va === 'function') {
+                                    window.va('track', 'Data Imported');
+                                }
                             }
                         } else {
                             alert('File non valido!');
@@ -203,7 +250,7 @@
                                 </div>
                                 
                                 <div className="flex items-center gap-2 bg-green-100 text-green-800 px-4 py-2 rounded-lg text-base font-medium">
-                                    ☁️ Online & Funzionante
+                                    📊 Metriche Attive
                                 </div>
                             </div>
 
@@ -360,10 +407,10 @@
                         <div className="mt-8 bg-white rounded-xl shadow p-8 text-center">
                             <p className="text-xl text-gray-700 font-bold">💒 App Spese Matrimonio</p>
                             <p className="text-base text-gray-500 mt-3">
-                                📤📥 Export/Import per sincronizzazione Italia ↔ America
+                                📊 Con metriche Vercel attive • 📤📥 Export/Import per sincronizzazione
                             </p>
                             <div className="mt-4 text-sm text-gray-400">
-                                Creata per Erasmo & Lexi ❤️
+                                Creata per Erasmo & Lexi ❤️ • Analytics by Vercel
                             </div>
                             <div className="mt-4 p-4 bg-blue-50 rounded-lg">
                                 <p className="text-sm text-blue-800 font-medium">
@@ -381,6 +428,13 @@
         };
 
         ReactDOM.render(<WeddingExpenseTracker />, document.getElementById('root'));
+    </script>
+
+    <!-- Vercel Analytics - Page View Tracking -->
+    <script>
+        if (typeof window.va === 'function') {
+            window.va('pageview');
+        }
     </script>
 </body>
 </html>
