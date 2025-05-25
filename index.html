@@ -4,6 +4,33 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>💒 Spese Matrimonio - Erasmo & Lexi</title>
+    
+    <!-- Content Security Policy per permettere Google APIs -->
+    <meta http-equiv="Content-Security-Policy" content="
+        default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob:;
+        script-src 'self' 'unsafe-inline' 'unsafe-eval' 
+            https://unpkg.com 
+            https://apis.google.com 
+            https://accounts.google.com 
+            https://www.gstatic.com 
+            https://cdn.vercel-insights.com
+            https://cdnjs.cloudflare.com;
+        connect-src 'self' 
+            https://www.googleapis.com 
+            https://accounts.google.com 
+            https://oauth2.googleapis.com
+            https://vitals.vercel-insights.com;
+        frame-src 'self' 
+            https://accounts.google.com 
+            https://www.google.com;
+        style-src 'self' 'unsafe-inline' 
+            https://cdn.jsdelivr.net 
+            https://fonts.googleapis.com;
+        font-src 'self' 
+            https://fonts.gstatic.com;
+        img-src 'self' data: https:;
+    ">
+    
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -11,12 +38,11 @@
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
     <style>
         body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif; }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
     </style>
-    <!-- Vercel Analytics -->
-    <script>
-        window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };
-    </script>
-    <script defer src="https://cdn.vercel-insights.com/v1/script.js"></script>
 </head>
 <body>
     <div id="root">
@@ -28,13 +54,6 @@
             </div>
         </div>
     </div>
-
-    <style>
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-    </style>
 
     <script type="text/babel">
         const { useState, useEffect } = React;
@@ -76,6 +95,13 @@
             const [userEmail, setUserEmail] = useState('');
             const [gapiReady, setGapiReady] = useState(false);
             const [isLoading, setIsLoading] = useState(true);
+            const [debugMessages, setDebugMessages] = useState([]);
+
+            // Funzione per aggiungere messaggi di debug
+            const addDebugMessage = (message) => {
+                console.log(`🔍 DEBUG: ${message}`);
+                setDebugMessages(prev => [...prev.slice(-4), message]);
+            };
 
             useEffect(() => {
                 const handleOnline = () => setIsOnline(true);
@@ -95,6 +121,7 @@
             useEffect(() => {
                 localStorage.setItem('weddingExpenses', JSON.stringify(expenses));
                 if (isSignedIn && isOnline && expenses.length > 0 && gapiReady) {
+                    addDebugMessage("Auto-sync attivato");
                     const timeoutId = setTimeout(() => syncToGoogleDrive(), 2000);
                     return () => clearTimeout(timeoutId);
                 }
@@ -102,7 +129,21 @@
 
             const initializeGoogleAPI = async () => {
                 try {
-                    await new Promise((resolve) => gapi.load('client:auth2', resolve));
+                    addDebugMessage("Inizializzazione Google API...");
+                    
+                    // Verifica che gapi sia disponibile
+                    if (typeof gapi === 'undefined') {
+                        throw new Error('Google API non caricata');
+                    }
+
+                    await new Promise((resolve, reject) => {
+                        gapi.load('client:auth2', {
+                            callback: resolve,
+                            onerror: reject
+                        });
+                    });
+                    
+                    addDebugMessage("GAPI caricata, inizializzazione client...");
                     
                     await gapi.client.init({
                         apiKey: GOOGLE_CONFIG.API_KEY,
@@ -110,6 +151,8 @@
                         discoveryDocs: [GOOGLE_CONFIG.DISCOVERY_DOC],
                         scope: GOOGLE_CONFIG.SCOPES
                     });
+
+                    addDebugMessage("Client Google inizializzato");
 
                     const authInstance = gapi.auth2.getAuthInstance();
                     const isCurrentlySignedIn = authInstance.isSignedIn.get();
@@ -119,34 +162,59 @@
                     if (isCurrentlySignedIn) {
                         const user = authInstance.currentUser.get();
                         setUserEmail(user.getBasicProfile().getEmail());
+                        addDebugMessage(`Utente già autenticato: ${user.getBasicProfile().getEmail()}`);
                         await loadFromGoogleDrive();
                     }
                     
                     setGapiReady(true);
                     setIsLoading(false);
+                    addDebugMessage("Inizializzazione completata");
                 } catch (error) {
                     console.error('Errore Google API:', error);
+                    addDebugMessage(`Errore inizializzazione: ${error.message}`);
                     setIsLoading(false);
                     setGapiReady(true);
                 }
             };
 
             const signIn = async () => {
-                if (!gapiReady) return;
+                if (!gapiReady) {
+                    addDebugMessage("GAPI non pronta per il login");
+                    return;
+                }
                 
                 try {
+                    addDebugMessage("Tentativo di login...");
                     const authInstance = gapi.auth2.getAuthInstance();
-                    const user = await authInstance.signIn();
-                    setIsSignedIn(true);
-                    setUserEmail(user.getBasicProfile().getEmail());
-                    await loadFromGoogleDrive();
                     
-                    // Track login
-                    if (typeof window.va === 'function') {
-                        window.va('track', 'Google Drive Login');
-                    }
+                    // Usa signIn con opzioni per evitare popup
+                    const user = await authInstance.signIn({
+                        ux_mode: 'redirect',
+                        redirect_uri: window.location.origin
+                    });
+                    
+                    setIsSignedIn(true);
+                    const email = user.getBasicProfile().getEmail();
+                    setUserEmail(email);
+                    addDebugMessage(`Login completato: ${email}`);
+                    
+                    await loadFromGoogleDrive();
                 } catch (error) {
                     console.error('Errore login:', error);
+                    addDebugMessage(`Errore login: ${error.error || error.message}`);
+                    
+                    // Fallback: prova con popup normale
+                    try {
+                        const authInstance = gapi.auth2.getAuthInstance();
+                        const user = await authInstance.signIn();
+                        setIsSignedIn(true);
+                        const email = user.getBasicProfile().getEmail();
+                        setUserEmail(email);
+                        addDebugMessage(`Login fallback completato: ${email}`);
+                        await loadFromGoogleDrive();
+                    } catch (fallbackError) {
+                        addDebugMessage(`Errore login fallback: ${fallbackError.error || fallbackError.message}`);
+                    }
                 }
             };
 
@@ -158,15 +226,22 @@
                     await authInstance.signOut();
                     setIsSignedIn(false);
                     setUserEmail('');
+                    addDebugMessage("Logout completato");
                 } catch (error) {
                     console.error('Errore logout:', error);
+                    addDebugMessage(`Errore logout: ${error.message}`);
                 }
             };
 
             const syncToGoogleDrive = async () => {
-                if (!isSignedIn || isSyncing || !gapiReady) return;
+                if (!isSignedIn || isSyncing || !gapiReady) {
+                    addDebugMessage("Sync saltata - condizioni non rispettate");
+                    return;
+                }
                 
                 setIsSyncing(true);
+                addDebugMessage("Inizio sincronizzazione...");
+                
                 try {
                     const dataToSync = {
                         expenses,
@@ -175,6 +250,7 @@
                         location: userEmail.includes('era.nardi') ? 'Italia 🇮🇹' : 'America 🇺🇸'
                     };
 
+                    addDebugMessage("Cerco file esistente...");
                     const response = await gapi.client.drive.files.list({
                         q: `name='${GOOGLE_CONFIG.FILE_NAME}'`,
                         spaces: 'drive'
@@ -183,6 +259,7 @@
                     const fileData = JSON.stringify(dataToSync);
 
                     if (response.result.files.length > 0) {
+                        addDebugMessage("File trovato, aggiornamento...");
                         const fileId = response.result.files[0].id;
                         await gapi.client.request({
                             path: `https://www.googleapis.com/upload/drive/v3/files/${fileId}`,
@@ -191,7 +268,9 @@
                             headers: { 'Content-Type': 'application/json' },
                             body: fileData
                         });
+                        addDebugMessage("File aggiornato");
                     } else {
+                        addDebugMessage("Creazione nuovo file...");
                         const metadata = {
                             name: GOOGLE_CONFIG.FILE_NAME,
                             description: 'Spese matrimonio Erasmo & Lexi - Sync Italia/America'
@@ -208,13 +287,15 @@
                             }),
                             body: form
                         });
+                        addDebugMessage("Nuovo file creato");
                     }
                     
                     localStorage.setItem('lastSync', new Date().toISOString());
                     setLastSync(new Date().toISOString());
-                    console.log('✅ Sincronizzato su Google Drive');
+                    addDebugMessage("✅ Sincronizzazione completata");
                 } catch (error) {
                     console.error('❌ Errore sincronizzazione:', error);
+                    addDebugMessage(`❌ Errore sync: ${error.message}`);
                 } finally {
                     setIsSyncing(false);
                 }
@@ -224,6 +305,7 @@
                 if (!isSignedIn || !gapiReady) return;
                 
                 try {
+                    addDebugMessage("Caricamento da Google Drive...");
                     const response = await gapi.client.drive.files.list({
                         q: `name='${GOOGLE_CONFIG.FILE_NAME}'`,
                         spaces: 'drive'
@@ -243,11 +325,16 @@
                             setExpenses(cloudData.expenses);
                             setLastSync(cloudData.lastUpdate);
                             localStorage.setItem('lastSync', cloudData.lastUpdate);
-                            console.log('📥 Caricato da Google Drive');
+                            addDebugMessage("📥 Dati caricati da Google Drive");
+                        } else {
+                            addDebugMessage("Dati locali più recenti");
                         }
+                    } else {
+                        addDebugMessage("Nessun file trovato su Drive");
                     }
                 } catch (error) {
                     console.error('❌ Errore caricamento:', error);
+                    addDebugMessage(`❌ Errore caricamento: ${error.message}`);
                 }
             };
 
@@ -271,11 +358,13 @@
                 ));
                 setEditingId(null);
                 setEditForm({});
+                addDebugMessage("Spesa modificata, sync in corso...");
             };
 
             const deleteExpense = (id) => {
                 if (window.confirm('Sei sicuro di voler eliminare questa spesa?')) {
                     setExpenses(expenses.filter(expense => expense.id !== id));
+                    addDebugMessage("Spesa eliminata, sync in corso...");
                 }
             };
 
@@ -287,6 +376,7 @@
                         paymentDate: !expense.paid ? new Date().toISOString().split('T')[0] : ''
                     } : expense
                 ));
+                addDebugMessage("Stato pagamento cambiato, sync in corso...");
             };
 
             const addNewExpense = () => {
@@ -301,6 +391,7 @@
                 };
                 setExpenses([...expenses, newExpense]);
                 startEdit(newExpense);
+                addDebugMessage("Nuova spesa aggiunta");
             };
 
             if (isLoading) {
@@ -325,6 +416,20 @@
                             }}></div>
                             <h2 style={{ color: '#ec4899', margin: 0 }}>💒 Connessione Google Drive...</h2>
                             <p style={{ color: '#6b7280', margin: '10px 0 0' }}>Sincronizzazione Italia ↔ America</p>
+                            
+                            {/* Debug messages durante il caricamento */}
+                            <div style={{ marginTop: '20px', textAlign: 'left', maxWidth: '400px' }}>
+                                {debugMessages.map((msg, i) => (
+                                    <div key={i} style={{ 
+                                        fontSize: '12px', 
+                                        color: '#6b7280', 
+                                        margin: '4px 0',
+                                        fontFamily: 'monospace'
+                                    }}>
+                                        {msg}
+                                    </div>
+                                ))}
+                            </div>
                         </div>
                     </div>
                 );
@@ -406,6 +511,20 @@
                                 </div>
                             </div>
 
+                            {/* Debug panel */}
+                            {debugMessages.length > 0 && (
+                                <div className="mb-4 p-4 bg-gray-100 rounded-lg">
+                                    <h4 className="text-sm font-bold text-gray-700 mb-2">🔍 Debug Status:</h4>
+                                    <div className="space-y-1">
+                                        {debugMessages.slice(-5).map((msg, i) => (
+                                            <div key={i} className="text-xs text-gray-600 font-mono">
+                                                {msg}
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
                             {lastSync && (
                                 <div className="text-center">
                                     <div className={`inline-flex items-center gap-2 px-4 py-2 rounded-full text-base font-medium ${
@@ -441,33 +560,6 @@
                                                             type="text"
                                                             value={editForm.category || ''}
                                                             onChange={(e) => setEditForm({...editForm, category: e.target.value})}
-                                                            className="w-full px-4 py-3 text-lg border border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent"
-                                                        />
-                                                    </div>
-                                                    <div>
-                                                        <label className="block text-lg font-bold text-gray-700 mb-2">Budget Stimato ($)</label>
-                                                        <input
-                                                            type="number"
-                                                            value={editForm.estimatedCost || 0}
-                                                            onChange={(e) => setEditForm({...editForm, estimatedCost: Number(e.target.value)})}
-                                                            className="w-full px-4 py-3 text-lg border border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent"
-                                                        />
-                                                    </div>
-                                                    <div>
-                                                        <label className="block text-lg font-bold text-gray-700 mb-2">Costo Effettivo ($)</label>
-                                                        <input
-                                                            type="number"
-                                                            value={editForm.actualCost || 0}
-                                                            onChange={(e) => setEditForm({...editForm, actualCost: Number(e.target.value)})}
-                                                            className="w-full px-4 py-3 text-lg border border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent"
-                                                        />
-                                                    </div>
-                                                    <div>
-                                                        <label className="block text-lg font-bold text-gray-700 mb-2">Data Pagamento</label>
-                                                        <input
-                                                            type="date"
-                                                            value={editForm.paymentDate || ''}
-                                                            onChange={(e) => setEditForm({...editForm, paymentDate: e.target.value})}
                                                             className="w-full px-4 py-3 text-lg border border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent"
                                                         />
                                                     </div>
@@ -530,7 +622,7 @@
                                                     <div>
                                                         <span className="text-gray-500 block text-lg font-medium">Speso:</span>
                                                         <div className="font-bold text-2xl text-orange-700">
-                                                            {expense.actualCost > 0 ? `$${expense.actualCost.toLocaleString()}` : '-'}
+                                                            {expense.actualCost > 0 ? `${expense.actualCost.toLocaleString()}` : '-'}
                                                         </div>
                                                     </div>
                                                     <div>
@@ -571,23 +663,71 @@
                                 ☁️ Sincronizzazione AUTOMATICA Italia ↔ America via Google Drive
                             </p>
                             <div className="mt-4 text-sm text-gray-400">
+                                </div>
+                                                    <div>
+                                                        <label className="block text-lg font-bold text-gray-700 mb-2">Budget Stimato ($)</label>
+                                                        <input
+                                                            type="number"
+                                                            value={editForm.estimatedCost || 0}
+                                                            onChange={(e) => setEditForm({...editForm, estimatedCost: Number(e.target.value)})}
+                                                            className="w-full px-4 py-3 text-lg border border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent"
+                                                        />
+                                                    </div>
+                                                    <div>
+                                                        <label className="block text-lg font-bold text-gray-700 mb-2">Costo Effettivo ($)</label>
+                                                        <input
+                                                            type="number"
+                                                            value={editForm.actualCost || 0}
+                                                            onChange={(e) => setEditForm({...editForm, actualCost: Number(e.target.value)})}
+                                                            className="w-full px-4 py-3 text-lg border border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent"
+                                                        />
+                                                    </div>
+                                                    <div>
+                                                        <label className="block text-lg font-bold text-gray-700 mb-2">Data Pagamento</label>
+                                                        <input
+                                                            type="date"
+                                                            value={editForm.paymentDate || ''}
+                                                            onChange={(e) => setEditForm({...editForm, paymentDate: e.target.value})}
+                                                            className="w-full px-4 py-3 text-lg border border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent"
+                                                        />
+                                                    >
+                                                    ✏️ Modifica
+                                                </button>
+                                                <button 
+                                                    onClick={() => deleteExpense(expense.id)}
+                                                    className="bg-red-500 hover:bg-red-600 text-white px-6 py-3 rounded-lg flex items-center gap-2 transition-colors font-bold text-lg"
+                                                >
+                                                    🗑️ Elimina
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+
+                        <div className="mt-8 bg-white rounded-xl shadow p-8 text-center">
+                            <p className="text-xl text-gray-700 font-bold">💒 App Spese Matrimonio</p>
+                            <p className="text-base text-gray-500 mt-3">
+                                ☁️ Sincronizzazione AUTOMATICA Italia ↔ America via Google Drive
+                            </p>
+                            <div className="mt-4 text-sm text-gray-400">
                                 Creata per Erasmo & Lexi ❤️ • Analytics by Vercel
                             </div>
                         </div>
                     </div>
+                </div>
+            );
+        };
 
-                    </div>
-           );
-       };
+        ReactDOM.render(<WeddingExpenseTracker />, document.getElementById('root'));
+    </script>
 
-       ReactDOM.render(<WeddingExpenseTracker />, document.getElementById('root'));
-   </script>
-
-   <!-- Vercel Analytics - Page View Tracking -->
-   <script>
-       if (typeof window.va === 'function') {
-           window.va('pageview');
-       }
-   </script>
+    <!-- Vercel Analytics - Page View Tracking -->
+    <script>
+        if (typeof window.va === 'function') {
+            window.va('pageview');
+        }
+    </script>
 </body>
 </html>
